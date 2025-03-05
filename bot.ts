@@ -1,5 +1,6 @@
 import { Connection, PublicKey } from '@solana/web3.js';
 import { TwitterApi } from 'twitter-api-v2';
+import axios from 'axios';
 
 // Solana setup
 const RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com'; // Replace with your RPC
@@ -7,13 +8,16 @@ const connection = new Connection(RPC_ENDPOINT, 'confirmed');
 const RAYDIUM_PROGRAM_ID = new PublicKey('675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8');
 const SOL_USDC_POOL = new PublicKey('58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2');
 
-// X API setup (replace with your bearer token)
+// X API setup
 const BEARER_TOKEN = 'YOUR_X_BEARER_TOKEN';
 const twitterClient = new TwitterApi(BEARER_TOKEN);
 const stream = twitterClient.v2.searchStream({
   'tweet.fields': ['created_at', 'author_id'],
   'user.fields': ['followers_count'],
 });
+
+// GMGN API base URL (hypothetical; adjust if official API docs emerge)
+const GMGN_API = 'https://gmgn.ai/defi/router/v1/sol';
 
 // Keywords to track
 const KEYWORDS = ['SOL', 'CA', 'mcap', 'memecoin', 'Launch'];
@@ -26,7 +30,16 @@ interface MarketData {
 let marketHistory: MarketData[] = [];
 let totalVolume = 0;
 
-// Swap event subscription (from previous code)
+// GMGN analysis result
+interface GmgnAnalysis {
+  liquidity: number; // In SOL
+  smartMoneyActivity: number; // Number of smart trades
+  holderCount: number;
+  rugRisk: 'low' | 'medium' | 'high';
+  isWorthInvesting: boolean;
+}
+
+// Subscribe to swap events
 async function subscribeToSwapEvents() {
   console.log('Subscribing to Raydium swap events...');
   const subscriptionId = connection.onLogs(
@@ -52,7 +65,49 @@ function extractSwapAmount(log: string): number {
   return Math.random() * 10; // Placeholder—replace with real decoding
 }
 
-// X stream for keyword scanning
+// Analyze token on GMGN
+async function analyzeTokenOnGmgn(tokenAddress: string): Promise<GmgnAnalysis> {
+  try {
+    // Hypothetical GMGN API call (replace with real endpoint if available)
+    const response = await axios.get(`${GMGN_API}/token_analysis`, {
+      params: {
+        token_address: tokenAddress,
+        chain: 'sol',
+      },
+    });
+    const data = response.data;
+
+    // Simulated data if no direct API (replace with real parsing)
+    const analysis: GmgnAnalysis = {
+      liquidity: data?.liquidity || Math.random() * 1000, // SOL
+      smartMoneyActivity: data?.smart_trades || Math.floor(Math.random() * 10),
+      holderCount: data?.holders || Math.floor(Math.random() * 1000),
+      rugRisk: data?.rug_risk || (Math.random() > 0.7 ? 'high' : Math.random() > 0.3 ? 'medium' : 'low'),
+      isWorthInvesting: false,
+    };
+
+    // Investment criteria
+    analysis.isWorthInvesting = (
+      analysis.liquidity > 10 && // Minimum 10 SOL liquidity
+      analysis.smartMoneyActivity > 2 && // Smart money buying
+      analysis.holderCount > 50 && // Decent distribution
+      analysis.rugRisk !== 'high'
+    );
+
+    return analysis;
+  } catch (error) {
+    console.error(`GMGN analysis failed for ${tokenAddress}:`, error);
+    return {
+      liquidity: 0,
+      smartMoneyActivity: 0,
+      holderCount: 0,
+      rugRisk: 'high',
+      isWorthInvesting: false,
+    };
+  }
+}
+
+// X stream with GMGN analysis
 async function scanTwitter() {
   console.log('Scanning X for keywords:', KEYWORDS.join(', '));
 
@@ -61,14 +116,9 @@ async function scanTwitter() {
     const user = await twitterClient.v2.user(tweet.data.author_id);
     const followerCount = user.data.followers_count || 0;
 
-    // Check if tweet contains any keyword
     const matchedKeywords = KEYWORDS.filter(kw => text.includes(kw.toLowerCase()));
-    if (matchedKeywords.length > 0) {
-      // Basic spam filter: ignore low-follower accounts (adjust threshold)
-      if (followerCount < 100) return;
-
-      // Look for contract addresses (CA) in tweet
-      const caMatch = text.match(/[A-Za-z0-9]{32,44}/); // Solana addresses are 32-44 chars
+    if (matchedKeywords.length > 0 && followerCount >= 100) {
+      const caMatch = text.match(/[A-Za-z0-9]{32,44}/);
       const opportunity = {
         keywords: matchedKeywords,
         tweet: text,
@@ -78,17 +128,26 @@ async function scanTwitter() {
         timestamp: tweet.data.created_at,
       };
 
-      // Instant alert
       console.log('\n🚨 OPPORTUNITY DETECTED 🚨');
       console.log(`User: @${opportunity.user} (${opportunity.followers} followers)`);
       console.log(`Keywords: ${opportunity.keywords.join(', ')}`);
       console.log(`Tweet: ${opportunity.tweet}`);
       if (opportunity.ca) console.log(`Possible CA: ${opportunity.ca}`);
+
+      // Perform GMGN analysis if CA is found
+      if (opportunity.ca) {
+        const analysis = await analyzeTokenOnGmgn(opportunity.ca);
+        console.log(`\n📊 GMGN Analysis for ${opportunity.ca}`);
+        console.log(`Liquidity: ${analysis.liquidity.toFixed(2)} SOL`);
+        console.log(`Smart Money Trades: ${analysis.smartMoneyActivity}`);
+        console.log(`Holders: ${analysis.holderCount}`);
+        console.log(`Rug Risk: ${analysis.rugRisk}`);
+        console.log(`Worth Investing? ${analysis.isWorthInvesting ? 'YES' : 'NO'}`);
+      }
       console.log(`Time: ${opportunity.timestamp}\n`);
     }
   });
 
-  // Start the stream
   await stream.connect({ autoReconnect: true });
 }
 
@@ -106,13 +165,11 @@ async function startBot() {
   const subId = await subscribeToSwapEvents();
   await scanTwitter();
 
-  // Periodic trend report
   setInterval(() => {
     const trend = calculateVolumeTrend(marketHistory);
     console.log(`Volume Trend: ${trend} | Total Volume: ${totalVolume.toFixed(2)} SOL`);
   }, 10000);
 
-  // Cleanup on exit
   process.on('SIGINT', async () => {
     await connection.removeOnLogsListener(subId);
     await stream.close();
