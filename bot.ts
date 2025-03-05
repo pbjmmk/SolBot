@@ -2,29 +2,33 @@ import { Connection, PublicKey, Keypair, Transaction, sendAndConfirmTransaction,
 import { TwitterApi } from 'twitter-api-v2';
 import axios from 'axios';
 import { Telegraf } from 'telegraf';
+import * as fs from 'fs';
+
+// Configuration (load from environment variables or config file in production)
+const CONFIG = {
+  RPC_ENDPOINT: process.env.RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com',
+  X_BEARER_TOKEN: process.env.X_BEARER_TOKEN || 'YOUR_X_BEARER_TOKEN',
+  TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || 'YOUR_TELEGRAM_BOT_TOKEN',
+  TELEGRAM_USERNAME: process.env.TELEGRAM_USERNAME || '@YourUsername',
+  WALLET_SECRET_KEY: Uint8Array.from(JSON.parse(process.env.WALLET_SECRET_KEY || '[]')),
+  SOL_TO_SPEND: 1, // Amount of SOL to spend per trade
+};
 
 // Solana setup
-const RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com'; // Replace with your RPC
-const connection = new Connection(RPC_ENDPOINT, 'confirmed');
+const connection = new Connection(CONFIG.RPC_ENDPOINT, 'confirmed');
 const RAYDIUM_PROGRAM_ID = new PublicKey('675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8');
 const SOL_USDC_POOL = new PublicKey('58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2');
+const wallet = Keypair.fromSecretKey(CONFIG.WALLET_SECRET_KEY);
 
 // X API setup
-const BEARER_TOKEN = 'YOUR_X_BEARER_TOKEN';
-const twitterClient = new TwitterApi(BEARER_TOKEN);
+const twitterClient = new TwitterApi(CONFIG.X_BEARER_TOKEN);
 const stream = twitterClient.v2.searchStream({
   'tweet.fields': ['created_at', 'author_id'],
   'user.fields': ['followers_count'],
 });
 
 // Telegram setup
-const TELEGRAM_BOT_TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN';
-const TELEGRAM_USERNAME = '@YourUsername';
-const telegramBot = new Telegraf(TELEGRAM_BOT_TOKEN);
-
-// Wallet setup
-const WALLET_SECRET_KEY = Uint8Array.from([/* Your secret key array */]);
-const wallet = Keypair.fromSecretKey(WALLET_SECRET_KEY);
+const telegramBot = new Telegraf(CONFIG.TELEGRAM_BOT_TOKEN);
 
 // Jupiter API
 const JUPITER_API = 'https://quote-api.jup.ag/v6';
@@ -32,15 +36,11 @@ const JUPITER_API = 'https://quote-api.jup.ag/v6';
 // Keywords
 const KEYWORDS = ['SOL', 'CA', 'mcap', 'memecoin', 'Launch'];
 
-// Market data storage
-interface MarketData {
-  volume: number;
-  timestamp: number;
-}
+// Data storage
+interface MarketData { volume: number; timestamp: number; }
 let marketHistory: MarketData[] = [];
 let totalVolume = 0;
 
-// GMGN analysis result
 interface GmgnAnalysis {
   liquidity: number;
   smartMoneyActivity: number;
@@ -50,57 +50,36 @@ interface GmgnAnalysis {
   tenXScore: number;
 }
 
-// Gas settings
-interface GasSettings {
-  computeUnits: number;
-  priorityFee: number;
-}
+interface GasSettings { computeUnits: number; priorityFee: number; }
 let lastGasSettings: GasSettings | null = null;
 
-// Rugcheck result
-interface RugcheckResult {
-  isSafe: boolean;
-  riskScore: number; // 0-100, lower is safer
-}
-
-// TweetScout result
-interface TweetScoutResult {
-  credibilityScore: number; // 0-100, higher is better
-}
+interface RugcheckResult { isSafe: boolean; riskScore: number; }
+interface TweetScoutResult { credibilityScore: number; }
 
 // Subscribe to swap events
-async function subscribeToSwapEvents() {
+async function subscribeToSwapEvents(): Promise<number> {
   console.log('Subscribing to Raydium swap events...');
-  const subscriptionId = connection.onLogs(
+  return connection.onLogs(
     RAYDIUM_PROGRAM_ID,
     (logs) => {
       if (logs.logs.some(log => log.includes(SOL_USDC_POOL.toBase58()))) {
-        const swapLog = logs.logs.find(log => log.includes('Swap'));
-        if (swapLog) {
-          const swapAmount = extractSwapAmount(swapLog);
-          totalVolume += swapAmount;
-          marketHistory.push({ volume: swapAmount, timestamp: Date.now() });
-          if (marketHistory.length > 100) marketHistory.shift();
-          console.log(`Swap Detected | Amount: ${swapAmount.toFixed(2)} SOL | Total Volume: ${totalVolume.toFixed(2)} SOL`);
-        }
+        const swapAmount = Math.random() * 10; // Placeholder
+        totalVolume += swapAmount;
+        marketHistory.push({ volume: swapAmount, timestamp: Date.now() });
+        if (marketHistory.length > 100) marketHistory.shift();
+        console.log(`Swap Detected | Amount: ${swapAmount.toFixed(2)} SOL | Total Volume: ${totalVolume.toFixed(2)} SOL`);
       }
     },
     'confirmed'
   );
-  return subscriptionId;
-}
-
-function extractSwapAmount(log: string): number {
-  return Math.random() * 10; // Placeholder
 }
 
 // Analyze token on GMGN
 async function analyzeTokenOnGmgn(tokenAddress: string): Promise<GmgnAnalysis> {
   try {
-    const response = await axios.get(`https://gmgn.ai/defi/router/v1/sol/token_analysis`, {
+    const data = (await axios.get(`https://gmgn.ai/defi/router/v1/sol/token_analysis`, {
       params: { token_address: tokenAddress, chain: 'sol' },
-    });
-    const data = response.data || {
+    })).data || {
       liquidity: Math.random() * 1000,
       smart_trades: Math.floor(Math.random() * 10),
       holders: Math.floor(Math.random() * 1000),
@@ -137,66 +116,48 @@ async function analyzeTokenOnGmgn(tokenAddress: string): Promise<GmgnAnalysis> {
   }
 }
 
-// Security check via Rugcheck.xyz
+// Rugcheck security check
 async function checkRugcheck(tokenAddress: string): Promise<RugcheckResult> {
   try {
-    // Simulated Rugcheck API call (replace with real endpoint if available)
-    const response = await axios.get(`https://api.rugcheck.xyz/v1/check`, {
+    const data = (await axios.get(`https://api.rugcheck.xyz/v1/check`, {
       params: { token: tokenAddress, chain: 'solana' },
-    });
-    const data = response.data || {
-      risk_score: Math.floor(Math.random() * 100), // Simulated 0-100 risk score
-    };
-
-    return {
-      isSafe: data.risk_score < 30, // Safe if risk < 30
-      riskScore: data.risk_score,
-    };
+    })).data || { risk_score: Math.floor(Math.random() * 100) };
+    return { isSafe: data.risk_score < 30, riskScore: data.risk_score };
   } catch (error) {
     console.error(`Rugcheck failed for ${tokenAddress}:`, error);
-    return { isSafe: false, riskScore: 100 }; // Default to unsafe
+    return { isSafe: false, riskScore: 100 };
   }
 }
 
-// Social credibility via TweetScout.io
-async function checkTweetScout(tweetAuthorId: string, tokenAddress: string): Promise<TweetScoutResult> {
+// TweetScout credibility check
+async function checkTweetScout(tweetAuthorId: string): Promise<TweetScoutResult> {
   try {
-    // Simulated TweetScout API call
     const user = await twitterClient.v2.user(tweetAuthorId);
     const followerCount = user.data.followers_count || 0;
-    
-    // Simulate TweetScout Score based on followers and token mentions (replace with real API)
-    const score = Math.min(100, followerCount / 100 + (Math.random() * 20)); // Rough estimate
-
-    return {
-      credibilityScore: score,
-    };
+    const score = Math.min(100, followerCount / 100 + (Math.random() * 20));
+    return { credibilityScore: score };
   } catch (error) {
-    console.error(`TweetScout failed for ${tokenAddress}:`, error);
+    console.error(`TweetScout failed:`, error);
     return { credibilityScore: 0 };
   }
 }
 
-// Calculate optimal gas settings
+// Optimal gas settings
 async function getOptimalGasSettings(): Promise<GasSettings> {
   try {
     const recentBlocks = await connection.getRecentPrioritizationFees();
     const medianFee = recentBlocks
       .map(fee => fee.prioritizationFee)
       .sort((a, b) => a - b)[Math.floor(recentBlocks.length / 2)] || 5000;
-
-    return {
-      computeUnits: 200_000,
-      priorityFee: Math.max(medianFee, 1000),
-    };
+    return { computeUnits: 200_000, priorityFee: Math.max(medianFee, 1000) };
   } catch (error) {
     console.error('Failed to fetch optimal gas settings:', error);
     return { computeUnits: 200_000, priorityFee: 5000 };
   }
 }
 
-// Execute buy transaction
-async function buyToken(tokenAddress: string, solAmount: number) {
+// Buy token
+async function buyToken(tokenAddress: string, solAmount: number): Promise<string | null> {
   try {
     const gasSettings = lastGasSettings || await getOptimalGasSettings();
     console.log(`Using gas settings - Compute Units: ${gasSettings.computeUnits}, Priority Fee: ${gasSettings.priorityFee} micro-lamports`);
@@ -215,9 +176,8 @@ async function buyToken(tokenAddress: string, solAmount: number) {
       quoteResponse: quote,
       userPublicKey: wallet.publicKey.toBase58(),
     });
-    const swapTransaction = swapResponse.data.swapTransaction;
+    const tx = Transaction.from(Buffer.from(swapResponse.data.swapTransaction, 'base64'));
 
-    const tx = Transaction.from(Buffer.from(swapTransaction, 'base64'));
     tx.add(
       ComputeBudgetProgram.setComputeUnitLimit({ units: gasSettings.computeUnits }),
       ComputeBudgetProgram.setComputeUnitPrice({ microLamports: gasSettings.priorityFee })
@@ -226,7 +186,6 @@ async function buyToken(tokenAddress: string, solAmount: number) {
     tx.sign(wallet);
     const txid = await sendAndConfirmTransaction(connection, tx, [wallet]);
     lastGasSettings = gasSettings;
-    console.log(`Gas settings saved from successful trade: ${txid}`);
     return txid;
   } catch (error) {
     console.error(`Buy failed for ${tokenAddress}:`, error);
@@ -236,10 +195,10 @@ async function buyToken(tokenAddress: string, solAmount: number) {
 
 // Notify via Telegram
 async function notifyTelegram(message: string) {
-  await telegramBot.telegram.sendMessage(TELEGRAM_USERNAME, message);
+  await telegramBot.telegram.sendMessage(CONFIG.TELEGRAM_USERNAME, message);
 }
 
-// X stream with checks
+// Scan X and process trades
 async function scanTwitter() {
   console.log('Scanning X for keywords:', KEYWORDS.join(', '));
 
@@ -268,36 +227,29 @@ async function scanTwitter() {
       if (opportunity.ca) console.log(`Possible CA: ${opportunity.ca}`);
 
       if (opportunity.ca) {
-        const analysis = await analyzeTokenOnGmgn(opportunity.ca);
+        const [analysis, rugcheck, tweetScout] = await Promise.all([
+          analyzeTokenOnGmgn(opportunity.ca),
+          checkRugcheck(opportunity.ca),
+          checkTweetScout(opportunity.authorId),
+        ]);
+
         console.log(`\n📊 GMGN Analysis for ${opportunity.ca}`);
-        console.log(`Liquidity: ${analysis.liquidity.toFixed(2)} SOL`);
-        console.log(`Smart Money Trades: ${analysis.smartMoneyActivity}`);
-        console.log(`Holders: ${analysis.holderCount}`);
-        console.log(`Rug Risk: ${analysis.rugRisk}`);
-        console.log(`10x Score: ${analysis.tenXScore}`);
-        console.log(`Worth Investing? ${analysis.isWorthInvesting ? 'YES' : 'NO'}`);
+        console.log(`Liquidity: ${analysis.liquidity.toFixed(2)} SOL | Smart Money: ${analysis.smartMoneyActivity} | Holders: ${analysis.holderCount}`);
+        console.log(`Rug Risk: ${analysis.rugRisk} | 10x Score: ${analysis.tenXScore} | Worth Investing? ${analysis.isWorthInvesting ? 'YES' : 'NO'}`);
+        console.log(`🔒 Rugcheck: Risk Score ${rugcheck.riskScore} (Safe: ${rugcheck.isSafe})`);
+        console.log(`🌐 TweetScout: Credibility Score ${tweetScout.credibilityScore}`);
 
-        if (analysis.tenXScore >= 70) {
-          // Perform security and credibility checks
-          const rugcheck = await checkRugcheck(opportunity.ca);
-          const tweetScout = await checkTweetScout(opportunity.authorId, opportunity.ca);
-
-          console.log(`\n🔒 Rugcheck Result: Risk Score ${rugcheck.riskScore} (Safe: ${rugcheck.isSafe})`);
-          console.log(`🌐 TweetScout Credibility Score: ${tweetScout.credibilityScore}`);
-
-          if (rugcheck.isSafe && tweetScout.credibilityScore >= 50) {
-            const SOL_TO_SPEND = 1;
-            const txid = await buyToken(opportunity.ca, SOL_TO_SPEND);
-            const message = txid
-              ? `🚀 Bought ${SOL_TO_SPEND} SOL of ${opportunity.ca}!\nTxID: ${txid}\n10x Score: ${analysis.tenXScore}\nRugcheck: ${rugcheck.riskScore}\nTweetScout: ${tweetScout.credibilityScore}`
-              : `❌ Buy failed for ${opportunity.ca}`;
-            await notifyTelegram(message);
-            console.log(message);
-          } else {
-            const message = `⛔ Skipped ${opportunity.ca}: Rugcheck Safe=${rugcheck.isSafe}, TweetScout Score=${tweetScout.credibilityScore}`;
-            await notifyTelegram(message);
-            console.log(message);
-          }
+        if (analysis.tenXScore >= 70 && rugcheck.isSafe && tweetScout.credibilityScore >= 50) {
+          const txid = await buyToken(opportunity.ca, CONFIG.SOL_TO_SPEND);
+          const message = txid
+            ? `🚀 Bought ${CONFIG.SOL_TO_SPEND} SOL of ${opportunity.ca}!\nTxID: ${txid}\n10x Score: ${analysis.tenXScore}\nRugcheck: ${rugcheck.riskScore}\nTweetScout: ${tweetScout.credibilityScore}`
+            : `❌ Buy failed for ${opportunity.ca}`;
+          await notifyTelegram(message);
+          console.log(message);
+        } else {
+          const message = `⛔ Skipped ${opportunity.ca}: 10x=${analysis.tenXScore}, Rugcheck Safe=${rugcheck.isSafe}, TweetScout=${tweetScout.credibilityScore}`;
+          await notifyTelegram(message);
+          console.log(message);
         }
       }
       console.log(`Time: ${opportunity.timestamp}\n`);
@@ -308,12 +260,11 @@ async function scanTwitter() {
 }
 
 // Volume trend analysis
-function calculateVolumeTrend(data: MarketData[]) {
+function calculateVolumeTrend(data: MarketData[]): string {
   if (data.length < 5) return 'Insufficient data';
   const volumes = data.slice(-5).map(d => d.volume);
   const avg = volumes.reduce((sum, v) => sum + v, 0) / volumes.length;
-  const currentVolume = volumes[volumes.length - 1];
-  return currentVolume > avg ? 'Rising Activity' : currentVolume < avg ? 'Falling Activity' : 'Stable';
+  return volumes[volumes.length - 1] > avg ? 'Rising Activity' : volumes[volumes.length - 1] < avg ? 'Falling Activity' : 'Stable';
 }
 
 // Main bot function
