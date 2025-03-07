@@ -22,9 +22,36 @@ const wallet = Keypair.fromSecretKey(CONFIG.WALLET_SECRET_KEY);
 
 // X API setup
 const twitterClient = new TwitterApi(CONFIG.X_BEARER_TOKEN);
-const stream = twitterClient.v2.searchStream({
+const stream = await twitterClient.v2.searchStream({
   'tweet.fields': ['created_at', 'author_id'],
-  'user.fields': ['followers_count'],
+  'expansions': 'author_id'
+});
+
+stream.on('data', async (tweet) => {
+  if (tweet.data && tweet.data.author_id) {
+    const authorId = tweet.data.author_id;
+
+    try {
+      const user = await twitterClient.v2.user(authorId, {
+        'user.fields': ['followers_count'],
+      });
+
+      const followersCount = user.data.followers_count;
+
+      console.log('Tweet:', tweet.data.text); //Or whatever data you want from the tweet.
+      console.log('Author ID:', authorId);
+      console.log('Followers:', followersCount);
+      console.log('---');
+
+      // Now you can use the followersCount variable in your further processing.
+    } catch (userError) {
+      console.error('Error fetching user data:', userError);
+    }
+  }
+});
+
+stream.on('error', (error) => {
+  console.error('Stream error:', error);
 });
 
 // Telegram setup
