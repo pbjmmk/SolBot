@@ -24,7 +24,7 @@ const wallet = Keypair.fromSecretKey(CONFIG.WALLET_SECRET_KEY);
 const twitterClient = new TwitterApi(CONFIG.X_BEARER_TOKEN);
 const stream = twitterClient.v2.searchStream({
   'tweet.fields': ['created_at', 'author_id'],
-  'user.fields': ['followers_count'],
+  'user.fields': ['follower_count'],
   'expansions': ['author_id'], // Add expansions to include user data
 });
 
@@ -134,7 +134,7 @@ async function checkRugcheck(tokenAddress: string): Promise<RugcheckResult> {
 async function checkTweetScout(tweetAuthorId: string): Promise<TweetScoutResult> {
   try {
     const user = await twitterClient.v2.user(tweetAuthorId, { 'user.fields': ['public_metrics'] });
-    const followerCount = user.data.public_metrics?.followers_count || 0;
+    const followerCount = user.data.public_metrics?.follower_count || 0;
     const score = Math.min(100, followerCount / 100 + (Math.random() * 20));
     return { credibilityScore: score };
   } catch (error) {
