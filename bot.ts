@@ -220,3 +220,82 @@ async function exampleGmgnUsage() {
 
 // exampleGmgnUsage(); // Uncomment to test
 export { getGmgnAnalysis };
+
+const RUGCHECK_API = 'https://api.rugcheck.xyz/v1/check';
+
+interface RugcheckParams {
+  token: string;
+  chain: 'solana';
+}
+
+interface RugcheckResponse {
+  risk_score: number;
+}
+
+async function checkRugcheck(params: RugcheckParams): Promise<RugcheckResponse> {
+  try {
+    const response = await axios.get(RUGCHECK_API, {
+      params: params,
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Rugcheck API request failed:', error);
+    throw error;
+  }
+}
+
+// Example usage (replace with your actual data)
+async function exampleRugcheckUsage() {
+  const rugcheckParams: RugcheckParams = {
+    token: 'YOUR_TOKEN_ADDRESS', // Replace with your token address
+    chain: 'solana',
+  };
+
+  try {
+    const rugcheckResult = await checkRugcheck(rugcheckParams);
+    console.log('Rugcheck Result:', rugcheckResult);
+  } catch (error) {
+    // Error is already logged in the function.
+  }
+}
+
+// exampleRugcheckUsage(); // Uncomment to test
+export { checkRugcheck };
+
+// Replace 'YOUR_BEARER_TOKEN' with your actual bearer token
+const bearerToken = 'YOUR_BEARER_TOKEN';
+
+const twitterClient = new TwitterApi(bearerToken);
+
+interface TweetScoutResponse {
+  credibilityScore: number;
+}
+
+async function checkTweetScout(tweetAuthorId: string): Promise<TweetScoutResponse> {
+  try {
+    const user = await twitterClient.v2.user(tweetAuthorId, {
+      'user.fields': ['public_metrics'],
+    });
+    const followerCount = user.data.public_metrics?.followers_count || 0;
+    const score = Math.min(100, followerCount / 100 + (Math.random() * 20)); // Basic scoring logic
+    return { credibilityScore: score };
+  } catch (error) {
+    console.error('TweetScout API request failed:', error);
+    throw error;
+  }
+}
+
+// Example usage (replace with your actual data)
+async function exampleTweetScoutUsage() {
+  const tweetAuthorId = 'TWITTER_USER_ID'; // Replace with a Twitter user ID
+  try {
+    const tweetScoutResult = await checkTweetScout(tweetAuthorId);
+    console.log('TweetScout Result:', tweetScoutResult);
+  } catch (error) {
+    // Error is already logged in the function.
+  }
+}
+
+// exampleTweetScoutUsage(); // Uncomment to test
+export { checkTweetScout };
+
