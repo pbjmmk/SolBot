@@ -1,168 +1,222 @@
-import { Connection, PublicKey, Keypair, Transaction, sendAndConfirmTransaction, ComputeBudgetProgram } from '@solana/web3.js';
-import { TwitterApi } from 'twitter-api-v2';
-import axios from 'axios';
+import { TwitterApi, StreamingV2Params } from 'twitter-api-v2';
 import { Telegraf } from 'telegraf';
-import * as fs from 'fs';
+import axios from 'axios';
 
-// Configuration (load from environment variables or config file in production)
-const CONFIG = {
-  RPC_ENDPOINT: process.env.RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com',
-  X_BEARER_TOKEN: process.env.X_BEARER_TOKEN || 'YOUR_X_BEARER_TOKEN',
-  TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || 'YOUR_TELEGRAM_BOT_TOKEN',
-  TELEGRAM_USERNAME: process.env.TELEGRAM_USERNAME || '@YourUsername',
-  WALLET_SECRET_KEY: Uint8Array.from(JSON.parse(process.env.WALLET_SECRET_KEY || '[]')),
-  SOL_TO_SPEND: 1, // Amount of SOL to spend per trade
-};
+// Replace 'YOUR_BEARER_TOKEN' with your actual bearer token
+const bearerToken = 'YOUR_BEARER_TOKEN';
 
-// Solana setup
-const connection = new Connection(CONFIG.RPC_ENDPOINT, 'confirmed');
-const RAYDIUM_PROGRAM_ID = new PublicKey('675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8');
-const SOL_USDC_POOL = new PublicKey('58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2');
-const wallet = Keypair.fromSecretKey(CONFIG.WALLET_SECRET_KEY);
+// Create a new Twitter API client
+const twitterClient = new TwitterApi(bearerToken);
 
-// X API setup
-const twitterClient = new TwitterApi(CONFIG.X_BEARER_TOKEN);
-const stream = twitterClient.v2.searchStream({
-  'tweet.fields': ['created_at', 'author_id'],
-  'user.fields': ['follower_count'],
-  'expansions': ['author_id'], // Add expansions to include user data
+// Obtain a read-only client
+const readOnlyClient = twitterClient.readOnly;
+
+async function setupSearchStream(keywords: string[]) {
+  const rules = await readOnlyClient.v2.getRules();
+
+  //Delete existing rules.
+  if (rules.data && rules.data.length > 0) {
+    await twitterClient.v2.updateRules({
+      delete: { ids: rules.data.map(rule => rule.id) },
+    });
+  }
+
+  // Add new rules
+  const newRules = keywords.map(keyword => ({ value: keyword }));
+  await twitterClient.v2.updateRules({
+    add: newRules,
+  });
+
+  const stream = twitterClient.v2.searchStream({
+    'tweet.fields': ['created_at', 'author_id', 'text'],
+    'user.fields': ['username', 'follower_count'],
+  });
+
+  stream.on('data', async (tweet) => {
+    console.log('Tweet received:', tweet);
+
+    // Access tweet data
+    const tweetText = tweet.data.text;
+    const authorId = tweet.data.author_id;
+    const createdAt = tweet.data.created_at;
+
+    //Access User Data.
+    const user = tweet.includes.includes.users?.find(user => user.id === authorId);
+    const username = user?.username;
+    const followers = user?.follower_count;
+
+    console.log(`\nTweet: ${tweetText}`);
+    console.log(`Author: @${username} (Followers: ${followers})`);
+    console.log(`Created at: ${createdAt}`);
+  });
+
+  stream.on('error', (error) => {
+    console.error('Stream error:', error);
+  });
+
+  stream.on('close', () => {
+    console.log('Stream closed.');
+  });
+
+  stream.on('reconnect', () => {
+    console.log('Stream reconnecting...');
+  });
+
+  await stream.connect({ autoReconnect: true });
+}
+
+// Example usage
+const keywordsToSearch = ['SOL', 'CA', 'memecoin'];
+setupSearchStream(keywordsToSearch).catch(console.error);
+
+// Replace 'YOUR_TELEGRAM_BOT_TOKEN' with your actual bot token
+const botToken = 'YOUR_TELEGRAM_BOT_TOKEN';
+
+// Replace '@YourUsername' with your telegram username, or the chat ID you wish to send messages to.
+const chatId = '@YourUsername'; //or a chat ID (number)
+
+// Create a new Telegraf bot instance
+const telegramBot = new Telegraf(botToken);
+
+// Example command handler
+telegramBot.start((ctx) => {
+  ctx.reply('Welcome to my bot!');
 });
 
-// Telegram setup
-const telegramBot = new Telegraf(CONFIG.TELEGRAM_BOT_TOKEN);
+// Example message handler
+telegramBot.on('text', (ctx) => {
+  ctx.reply(`You said: ${ctx.message.text}`);
+});
 
-// Jupiter API
+// Function to send a message to a specific chat
+async function notifyTelegram(message: string) {
+  try {
+    await telegramBot.telegram.sendMessage(chatId, message);
+    console.log(`Message sent to ${chatId}: ${message}`);
+  } catch (error) {
+    console.error(`Failed to send message to ${chatId}:`, error);
+  }
+}
+
+// Launch the bot
+telegramBot.launch().then(() => {
+    console.log('Telegram bot is running.');
+});
+
+// Example usage of notifyTelegram
+// (You can call this function from other parts of your application)
+// notifyTelegram('This is a test message.');
+
+// Enable graceful stop
+process.once('SIGINT', () => telegramBot.stop('SIGINT'));
+process.once('SIGTERM', () => telegramBot.stop('SIGTERM'));
+
+export { notifyTelegram };
+
 const JUPITER_API = 'https://quote-api.jup.ag/v6';
 
-// Keywords
-const KEYWORDS = ['SOL', 'CA', 'mcap', 'memecoin', 'Launch'];
+interface JupiterQuoteParams {
+  inputMint: string;
+  outputMint: string;
+  amount: number;
+  slippageBps: number;
+}
 
-// Data storage
-interface MarketData { volume: number; timestamp: number; }
-let marketHistory: MarketData[] = [];
-let totalVolume = 0;
+interface JupiterSwapParams {
+  quoteResponse: any; // Use a more specific type if you have it
+  userPublicKey: string;
+}
 
-interface GmgnAnalysis {
+async function getJupiterQuote(params: JupiterQuoteParams): Promise<any> {
+  try {
+    const response = await axios.get(`${JUPITER_API}/quote`, {
+      params: params,
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Failed to get Jupiter quote:', error);
+    throw error;
+  }
+}
+
+async function performJupiterSwap(params: JupiterSwapParams): Promise<any> {
+  try {
+    const response = await axios.post(`${JUPITER_API}/swap`, params);
+    return response.data;
+  } catch (error) {
+    console.error('Failed to perform Jupiter swap:', error);
+    throw error;
+  }
+}
+
+// Example usage (replace with your actual data)
+async function exampleJupiterUsage() {
+  const quoteParams: JupiterQuoteParams = {
+    inputMint: 'So11111111111111111111111111111111111111112', // SOL
+    outputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+    amount: 1 * 1e9, // 1 SOL (in lamports)
+    slippageBps: 50, // 0.5% slippage
+  };
+
+  try {
+    const quote = await getJupiterQuote(quoteParams);
+    console.log('Jupiter Quote:', quote);
+
+    const swapParams: JupiterSwapParams = {
+      quoteResponse: quote,
+      userPublicKey: 'YOUR_PUBLIC_KEY', // Replace with your public key
+    };
+
+    const swapResult = await performJupiterSwap(swapParams);
+    console.log('Jupiter Swap Result:', swapResult);
+  } catch (error) {
+    // Error is already logged in the functions.
+  }
+}
+
+// exampleJupiterUsage(); // Uncomment to test
+export { getJupiterQuote, performJupiterSwap };
+
+const GMGN_API = 'https://gmgn.ai/defi/router/v1/sol/token_analysis';
+
+interface GmgnAnalysisParams {
+  token_address: string;
+  chain: 'sol';
+}
+
+interface GmgnAnalysisResponse {
   liquidity: number;
-  smartMoneyActivity: number;
-  holderCount: number;
-  rugRisk: 'low' | 'medium' | 'high';
-  isWorthInvesting: boolean;
-  tenXScore: number;
+  smart_trades: number;
+  holders: number;
+  rug_risk: 'low' | 'medium' | 'high';
 }
 
-interface GasSettings { computeUnits: number; priorityFee: number; }
-let lastGasSettings: GasSettings | null = null;
-
-interface RugcheckResult { isSafe: boolean; riskScore: number; }
-interface TweetScoutResult { credibilityScore: number; }
-
-// Subscribe to swap events
-async function subscribeToSwapEvents(): Promise<number> {
-  console.log('Subscribing to Raydium swap events...');
-  return connection.onLogs(
-    RAYDIUM_PROGRAM_ID,
-    (logs) => {
-      if (logs.logs.some(log => log.includes(SOL_USDC_POOL.toBase58()))) {
-        const swapAmount = Math.random() * 10; // Placeholder
-        totalVolume += swapAmount;
-        marketHistory.push({ volume: swapAmount, timestamp: Date.now() });
-        if (marketHistory.length > 100) marketHistory.shift();
-        console.log(`Swap Detected | Amount: ${swapAmount.toFixed(2)} SOL | Total Volume: ${totalVolume.toFixed(2)} SOL`);
-      }
-    },
-    'confirmed'
-  );
-}
-
-// Analyze token on GMGN
-async function analyzeTokenOnGmgn(tokenAddress: string): Promise<GmgnAnalysis> {
+async function getGmgnAnalysis(params: GmgnAnalysisParams): Promise<GmgnAnalysisResponse> {
   try {
-    const data = (await axios.get(`https://gmgn.ai/defi/router/v1/sol/token_analysis`, {
-      params: { token_address: tokenAddress, chain: 'sol' },
-    })).data || {
-      liquidity: Math.random() * 1000,
-      smart_trades: Math.floor(Math.random() * 10),
-      holders: Math.floor(Math.random() * 1000),
-      rug_risk: Math.random() > 0.7 ? 'high' : Math.random() > 0.3 ? 'medium' : 'low',
-    };
-
-    const analysis: GmgnAnalysis = {
-      liquidity: data.liquidity,
-      smartMoneyActivity: data.smart_trades,
-      holderCount: data.holders,
-      rugRisk: data.rug_risk,
-      isWorthInvesting: false,
-      tenXScore: 0,
-    };
-
-    analysis.tenXScore = (
-      (analysis.liquidity < 50 ? 30 : 10) +
-      (analysis.smartMoneyActivity * 10) +
-      (analysis.holderCount < 200 ? 20 : 10) -
-      (analysis.rugRisk === 'high' ? 30 : analysis.rugRisk === 'medium' ? 10 : 0)
-    );
-    analysis.isWorthInvesting = (
-      analysis.liquidity > 10 &&
-      analysis.smartMoneyActivity > 2 &&
-      analysis.holderCount > 50 &&
-      analysis.rugRisk !== 'high' &&
-      analysis.tenXScore >= 70
-    );
-
-    return analysis;
+    const response = await axios.get(GMGN_API, {
+      params: params,
+    });
+    return response.data;
   } catch (error) {
-    console.error(`GMGN analysis failed for ${tokenAddress}:`, error);
-    return { liquidity: 0, smartMoneyActivity: 0, holderCount: 0, rugRisk: 'high', isWorthInvesting: false, tenXScore: 0 };
+    console.error('Failed to get GMGN analysis:', error);
+    throw error;
   }
 }
 
-// Rugcheck security check
-async function checkRugcheck(tokenAddress: string): Promise<RugcheckResult> {
+// Example usage (replace with your actual data)
+async function exampleGmgnUsage() {
+  const analysisParams: GmgnAnalysisParams = {
+    token_address: 'YOUR_TOKEN_ADDRESS', // Replace with your token address
+    chain: 'sol',
+  };
+
   try {
-    const data = (await axios.get(`https://api.rugcheck.xyz/v1/check`, {
-      params: { token: tokenAddress, chain: 'solana' },
-    })).data || { risk_score: Math.floor(Math.random() * 100) };
-    return { isSafe: data.risk_score < 30, riskScore: data.risk_score };
+    const analysis = await getGmgnAnalysis(analysisParams);
+    console.log('GMGN Analysis:', analysis);
   } catch (error) {
-    console.error(`Rugcheck failed for ${tokenAddress}:`, error);
-    return { isSafe: false, riskScore: 100 };
+    // Error is already logged in the function.
   }
 }
 
-// TweetScout credibility check
-async function checkTweetScout(tweetAuthorId: string): Promise<TweetScoutResult> {
-  try {
-    const user = await twitterClient.v2.user(tweetAuthorId, { 'user.fields': ['public_metrics'] });
-    const followerCount = user.data.public_metrics?.follower_count || 0;
-    const score = Math.min(100, followerCount / 100 + (Math.random() * 20));
-    return { credibilityScore: score };
-  } catch (error) {
-    console.error(`TweetScout failed:`, error);
-    return { credibilityScore: 0 };
-  }
-}
-
-// Optimal gas settings
-async function getOptimalGasSettings(): Promise<GasSettings> {
-  try {
-    const recentBlocks = await connection.getRecentPrioritizationFees();
-    const medianFee = recentBlocks
-      .map(fee => fee.prioritizationFee)
-      .sort((a, b) => a - b)[Math.floor(recentBlocks.length / 2)] || 5000;
-    return { computeUnits: 200_000, priorityFee: Math.max(medianFee, 1000) };
-  } catch (error) {
-    console.error('Failed to fetch optimal gas settings:', error);
-    return { computeUnits: 200_000, priorityFee: 5000 };
-  }
-}
-
-// Buy token
-async function buyToken(tokenAddress: string, solAmount: number): Promise<string | null> {
-  try {
-    const gasSettings = lastGasSettings || await getOptimalGasSettings();
-    console.log(`Using gas settings - Compute Units: ${gasSettings.computeUnits}, Priority Fee: ${gasSettings.priorityFee} micro-lamports`);
-
-    const quoteResponse = await axios.get(`${JUPITER_API}/quote`, {
-      params: {
-        inputMint: 'So1111111111111111
+// exampleGmgnUsage(); // Uncomment to test
+export { getGmgnAnalysis };
