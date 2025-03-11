@@ -342,92 +342,6 @@ async function subscribeToSolanaLogs() {
 }
 
 subscribeToSolanaLogs();
-Explanation:
-
-Imports:
-We import Connection and PublicKey from @solana/web3.js.
-RPC Endpoint and Program ID:
-Replace RPC_ENDPOINT with your Solana RPC endpoint.
-Replace PROGRAM_ID with the PublicKey of the program you want to listen to logs for.
-Replace LOG_STRING with the string you are searching for within the logs.
-Connection Setup:
-We create a Connection instance to interact with the Solana blockchain.
-subscribeToSolanaLogs Function:
-Uses connection.onLogs to subscribe to logs.
-Takes three arguments:
-PROGRAM_ID: The program ID to listen to logs for.
-(logs, commitment) => {...}: A callback function that is called when logs are received.
-logs: An object containing the log data.
-commitment: The commitment level of the logs.
-'confirmed': The commitment level (can be 'confirmed', 'finalized', or 'processed').
-Inside the callback:
-We check if the logs contain the LOG_STRING using logs.logs.some((log) => log.includes(LOG_STRING)).
-If the log string is found, we log the logs object.
-You can add your logic to process the logs here.
-We log the subscriptionId to the console.
-We add a note on how to unsubscribe using connection.removeOnLogsListener(subscriptionId).
-We keep the subscription running indefinitely. In a real application, you might use setInterval or a similar mechanism to manage the subscription.
-Error Handling:
-We include a try...catch block to handle errors during subscription.
-Calling the Function:
-We call subscribeToSolanaLogs() to start the subscription.
-Key Points:
-
-Commitment Level: The commitment level determines how finalized the logs are. 'confirmed' is a good balance between speed and reliability.
-Log Processing: You'll need to parse the logs object to extract the data you need. The structure of the logs depends on the program you are listening to.
-Unsubscribing: Remember to unsubscribe from the logs when you no longer need them to avoid resource leaks.
-Filtering: The LOG_STRING filter is a basic example. You can implement more complex filtering logic based on your requirements.
-This example provides a solid foundation for setting up Solana Logs Subscription. Remember to replace the placeholder values with your actual data and adapt the log processing logic to your specific use case.
-
-
-
-
-
-Could you give me that last code as a text document
-
-
-TypeScript
-
-import { Connection, PublicKey } from '@solana/web3.js';
-
-// Replace with your RPC endpoint
-const RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com';
-
-// Replace with the program ID you want to listen to logs for
-const PROGRAM_ID = new PublicKey('675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8'); // Example: Raydium program ID
-
-// Replace with the specific log string you are looking for.
-const LOG_STRING = '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2'; // Example: SOL/USDC pool log string.
-
-const connection = new Connection(RPC_ENDPOINT, 'confirmed');
-
-async function subscribeToSolanaLogs() {
-  try {
-    const subscriptionId = connection.onLogs(
-      PROGRAM_ID,
-      (logs, commitment) => {
-        if (logs.logs.some((log) => log.includes(LOG_STRING))) {
-          console.log('Log Event Detected:', logs);
-          // Process the logs here
-          // You can extract relevant data from the logs object
-        }
-      },
-      'confirmed' // Commitment level: confirmed, finalized, processed
-    );
-
-    console.log(`Subscribed to logs with subscription ID: ${subscriptionId}`);
-
-    // To unsubscribe later, you can use:
-    // await connection.removeOnLogsListener(subscriptionId);
-
-    // Keep the subscription running (e.g., using setInterval or similar)
-    // For this example, we'll keep it running indefinitely
-  } catch (error) {
-    console.error('Failed to subscribe to Solana logs:', error);
-  }
-}
-
-subscribeToSolanaLogs();
 
 interface GasSettings {
   computeUnits: number;
@@ -494,7 +408,7 @@ async function setupTwitterStream(keywords: string[]) {
     // Create the stream
     const stream = twitterClient.v2.searchStream({
       'tweet.fields': ['created_at', 'author_id', 'text'],
-      'user.fields': ['username', 'followers_count'],
+      'user.fields': ['username', 'follower_count'],
     });
 
     // Listen for data
@@ -509,7 +423,7 @@ async function setupTwitterStream(keywords: string[]) {
       // Access user data (if included in the tweet)
       const user = tweet.includes?.users?.find((u) => u.id === authorId);
       const username = user?.username;
-      const followers = user?.followers_count;
+      const followers = user?.follower_count;
 
       console.log(`\nTweet: ${tweetText}`);
       console.log(`Author: @${username} (Followers: ${followers})`);
