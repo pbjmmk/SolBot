@@ -1,7 +1,7 @@
 import { TwitterApi, StreamingV2Params } from 'twitter-api-v2';
 import { Telegraf } from 'telegraf';
 import axios from 'axios';
-import { Connection, PublicKey } from '@solana/web3.js';
+import { Connection, PublicKey, Transaction, ComputeBudgetProgram } from '@solana/web3.js';
 
 
 
@@ -427,3 +427,44 @@ async function subscribeToSolanaLogs() {
 
 subscribeToSolanaLogs();
 
+interface GasSettings {
+  computeUnits: number;
+  priorityFee: number;
+}
+
+function addComputeBudgetInstructions(
+  transaction: Transaction,
+  gasSettings: GasSettings
+): Transaction {
+  // 1. Set Compute Unit Limit
+  const setComputeUnitLimitInstruction = ComputeBudgetProgram.setComputeUnitLimit({
+    units: gasSettings.computeUnits,
+  });
+
+  // 2. Set Compute Unit Price
+  const setComputeUnitPriceInstruction = ComputeBudgetProgram.setComputeUnitPrice({
+    microLamports: gasSettings.priorityFee,
+  });
+
+  // 3. Add Instructions to the Transaction
+  transaction.add(setComputeUnitLimitInstruction, setComputeUnitPriceInstruction);
+
+  return transaction;
+}
+
+// Example Usage:
+function exampleComputeBudgetUsage() {
+  const transaction = new Transaction(); // Create a new transaction
+  const gasSettings: GasSettings = {
+    computeUnits: 200_000, // Example: 200,000 compute units
+    priorityFee: 5000, // Example: 5,000 micro-lamports priority fee
+  };
+
+  const modifiedTransaction = addComputeBudgetInstructions(transaction, gasSettings);
+
+  console.log('Transaction with compute budget instructions:', modifiedTransaction);
+  // You would then add other transaction instructions and sign/send the transaction
+}
+
+// exampleComputeBudgetUsage(); // Uncomment to run the example
+export { addComputeBudgetInstructions };
