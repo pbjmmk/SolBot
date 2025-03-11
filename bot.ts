@@ -2,6 +2,8 @@ import { TwitterApi, StreamingV2Params } from 'twitter-api-v2';
 import { Telegraf } from 'telegraf';
 import axios from 'axios';
 import { Connection, PublicKey, Transaction, ComputeBudgetProgram } from '@solana/web3.js';
+import * as fs from 'fs/promises'; // Use fs/promises for async operations
+import * as path from 'path';
 
 
 
@@ -543,3 +545,72 @@ async function setupTwitterStream(keywords: string[]) {
 // Example usage
 const keywordsToTrack = ['SOL', 'memecoin', 'CA'];
 setupTwitterStream(keywordsToTrack).catch(console.error);
+
+// Function to read data from a file
+async function readFileData(filePath: string): Promise<string | null> {
+  try {
+    const absolutePath = path.resolve(filePath); // Resolve to absolute path
+    const data = await fs.readFile(absolutePath, 'utf-8');
+    return data;
+  } catch (error) {
+    console.error(`Error reading file ${filePath}:`, error);
+    return null;
+  }
+}
+
+// Function to write data to a file
+async function writeFileData(filePath: string, data: string): Promise<void> {
+  try {
+    const absolutePath = path.resolve(filePath); // Resolve to absolute path
+    await fs.writeFile(absolutePath, data, 'utf-8');
+    console.log(`Data written to ${filePath}`);
+  } catch (error) {
+    console.error(`Error writing to file ${filePath}:`, error);
+  }
+}
+
+// Function to append data to a file
+async function appendFileData(filePath: string, data: string): Promise<void> {
+  try {
+    const absolutePath = path.resolve(filePath); // Resolve to absolute path
+    await fs.appendFile(absolutePath, data, 'utf-8');
+    console.log(`Data appended to ${filePath}`);
+  } catch (error) {
+    console.error(`Error appending to file ${filePath}:`, error);
+  }
+}
+
+// Function to check if a file exists
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    const absolutePath = path.resolve(filePath); // Resolve to absolute path
+    await fs.access(absolutePath, fs.constants.F_OK);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+// Example Usage:
+async function exampleFileSystemUsage() {
+  const filePath = 'data.txt'; // Relative or absolute path
+
+  // Write data to file
+  await writeFileData(filePath, 'Hello, file system!');
+
+  // Append data to file
+  await appendFileData(filePath, '\nThis is appended data.');
+
+  // Read data from file
+  const fileContent = await readFileData(filePath);
+  if (fileContent !== null) {
+    console.log('File Content:', fileContent);
+  }
+
+  // Check if file exists
+  const exists = await fileExists(filePath);
+  console.log(`File ${filePath} exists: ${exists}`);
+}
+
+// exampleFileSystemUsage(); // Uncomment to run the example
+export { readFileData, writeFileData, appendFileData, fileExists };
