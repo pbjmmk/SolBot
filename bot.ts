@@ -468,3 +468,78 @@ function exampleComputeBudgetUsage() {
 
 // exampleComputeBudgetUsage(); // Uncomment to run the example
 export { addComputeBudgetInstructions };
+
+
+// Replace 'YOUR_BEARER_TOKEN' with your actual bearer token
+const bearerToken = 'YOUR_BEARER_TOKEN';
+
+const twitterClient = new TwitterApi(bearerToken);
+
+async function setupTwitterStream(keywords: string[]) {
+  try {
+    // Delete existing rules
+    const rules = await twitterClient.v2.getRules();
+    if (rules.data && rules.data.length > 0) {
+      await twitterClient.v2.updateRules({
+        delete: { ids: rules.data.map((rule) => rule.id) },
+      });
+    }
+
+    // Add new rules
+    const newRules = keywords.map((keyword) => ({ value: keyword }));
+    await twitterClient.v2.updateRules({ add: newRules });
+
+    // Create the stream
+    const stream = twitterClient.v2.searchStream({
+      'tweet.fields': ['created_at', 'author_id', 'text'],
+      'user.fields': ['username', 'followers_count'],
+    });
+
+    // Listen for data
+    stream.on('data', (tweet) => {
+      console.log('Tweet Received:', tweet);
+
+      // Access tweet data
+      const tweetText = tweet.data.text;
+      const authorId = tweet.data.author_id;
+      const createdAt = tweet.data.created_at;
+
+      // Access user data (if included in the tweet)
+      const user = tweet.includes?.users?.find((u) => u.id === authorId);
+      const username = user?.username;
+      const followers = user?.followers_count;
+
+      console.log(`\nTweet: ${tweetText}`);
+      console.log(`Author: @${username} (Followers: ${followers})`);
+      console.log(`Created At: ${createdAt}`);
+
+      // Add your custom processing logic here (e.g., keyword filtering, data extraction)
+    });
+
+    // Handle stream errors
+    stream.on('error', (error) => {
+      console.error('Stream Error:', error);
+    });
+
+    // Handle stream closure
+    stream.on('close', () => {
+      console.log('Stream Closed.');
+    });
+
+    // Handle stream reconnection
+    stream.on('reconnect', () => {
+      console.log('Stream Reconnecting...');
+    });
+
+    // Connect the stream
+    await stream.connect({ autoReconnect: true });
+    console.log('Twitter Stream Connected.');
+
+  } catch (error) {
+    console.error('Error setting up Twitter stream:', error);
+  }
+}
+
+// Example usage
+const keywordsToTrack = ['SOL', 'memecoin', 'CA'];
+setupTwitterStream(keywordsToTrack).catch(console.error);
