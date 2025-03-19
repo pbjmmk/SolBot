@@ -1,3 +1,10 @@
+#MySolana Public Key
+44oNEkvsEaZfbTXG4mARobdn4bpk3NdSDbrQa5hXFiCg
+
+
+
+
+
 # Solana Trading Bot with X and Telegram Notifications
 
 This project is a Node.js-based trading bot that monitors X (formerly Twitter) for potential Solana token opportunities, analyzes them, and executes trades based on predefined criteria. It also provides notifications via Telegram.
